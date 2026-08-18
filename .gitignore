@@ -46,3 +46,23 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Legacy root application files (the active Next.js application is in /web)
+/.openai/
+/app/
+/db/
+/drizzle-dynamic/
+/drizzle/
+/examples/
+/public/
+/tests/
+/worker/
+/drizzle.config.ts
+/drizzle.dynamic.config.ts
+/next-env.d.ts
+/next.config.mjs
+/next.config.ts
+/tsconfig.json
+/tsconfig.next.json
+/vite.config.ts
+/vite.dynamic.config.ts

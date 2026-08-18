@@ -1,0 +1,58 @@
+import mysql, { type Pool, type ResultSetHeader } from "mysql2/promise";
+import { hashPassword } from "./password";
+
+let pool: Pool | undefined;
+function getPool(){
+  pool ??= mysql.createPool({host:process.env.MYSQL_HOST||"127.0.0.1",port:Number(process.env.MYSQL_PORT||3306),database:process.env.MYSQL_DATABASE||"kemaritiman_polbeng",user:process.env.MYSQL_USER||"kemaritiman_app",password:process.env.MYSQL_PASSWORD,connectionLimit:10,charset:"utf8mb4"});
+  return pool;
+}
+
+class Statement {
+  params:unknown[]=[];
+  constructor(public sql:string){}
+  bind(...params:unknown[]){this.params=params;return this}
+  async run(){const [result]=await getPool().execute<ResultSetHeader>(this.sql,this.params);return {meta:{last_row_id:result.insertId},changes:result.affectedRows}}
+  async first<T>(){const [rows]=await getPool().execute(this.sql,this.params);return ((rows as T[])[0]??null) as T|null}
+  async all<T>(){const [rows]=await getPool().execute(this.sql,this.params);return {results:rows as T[]}}
+}
+class Database {prepare(sql:string){return new Statement(sql)} async batch(statements:Statement[]){return Promise.all(statements.map(s=>s.run()))}}
+const db=new Database();
+
+const tables=[
+`CREATE TABLE IF NOT EXISTS app_settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS users (id BIGINT PRIMARY KEY AUTO_INCREMENT,email VARCHAR(190) NOT NULL UNIQUE,name VARCHAR(190) NOT NULL,role VARCHAR(30) NOT NULL,unit_id VARCHAR(30) NOT NULL DEFAULT 'UPPS',active TINYINT(1) NOT NULL DEFAULT 1) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS auth_credentials (user_id BIGINT PRIMARY KEY,password_salt VARCHAR(100) NOT NULL,password_hash VARCHAR(100) NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS auth_sessions (token_hash VARCHAR(100) PRIMARY KEY,user_id BIGINT NOT NULL,expires_at BIGINT NOT NULL,INDEX idx_sessions_expiry(expires_at),FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS kpis (id BIGINT PRIMARY KEY AUTO_INCREMENT,code VARCHAR(50) NOT NULL UNIQUE,name VARCHAR(255) NOT NULL,category VARCHAR(100) NOT NULL,unit_id VARCHAR(30) NOT NULL,target DECIMAL(8,2) NOT NULL DEFAULT 0,actual DECIMAL(8,2) NOT NULL DEFAULT 0,year INT NOT NULL,source VARCHAR(100) NOT NULL,formula_type VARCHAR(30) NOT NULL,active TINYINT(1) NOT NULL DEFAULT 1,INDEX idx_kpis_unit_year(unit_id,year)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS documents (id BIGINT PRIMARY KEY AUTO_INCREMENT,title VARCHAR(255) NOT NULL,type VARCHAR(50) NOT NULL,unit_id VARCHAR(30) NOT NULL,year INT NOT NULL,visibility VARCHAR(30) NOT NULL,url TEXT NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS outcome_results (id BIGINT PRIMARY KEY AUTO_INCREMENT,program_id VARCHAR(30) NOT NULL,code VARCHAR(50) NOT NULL,name VARCHAR(255) NOT NULL,score DECIMAL(8,2) NOT NULL,semester VARCHAR(80) NOT NULL,target DECIMAL(8,2) NOT NULL DEFAULT 80,upload_id BIGINT NULL,INDEX idx_outcomes_program(program_id,semester)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS repositories (id BIGINT PRIMARY KEY AUTO_INCREMENT,title VARCHAR(255) NOT NULL,author VARCHAR(190) NOT NULL,year INT NOT NULL,type VARCHAR(50) NOT NULL,program_id VARCHAR(30) NOT NULL,url TEXT NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS laboratories (id BIGINT PRIMARY KEY AUTO_INCREMENT,name VARCHAR(255) NOT NULL,field VARCHAR(255) NOT NULL,equipment_count INT NOT NULL,member_count INT NOT NULL,roadmap_progress DECIMAL(8,2) NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS academic_records (id BIGINT PRIMARY KEY AUTO_INCREMENT,year INT NOT NULL,program_id VARCHAR(30) NOT NULL,graduated INT NOT NULL,graduated_on_time INT NOT NULL,upload_id BIGINT NULL,UNIQUE KEY uq_academic(year,program_id)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS tracer_records (id BIGINT PRIMARY KEY AUTO_INCREMENT,year INT NOT NULL,program_id VARCHAR(30) NOT NULL,traced INT NOT NULL,employed_within_6_months INT NOT NULL,upload_id BIGINT NULL,UNIQUE KEY uq_tracer(year,program_id)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS laboratory_usage (id BIGINT PRIMARY KEY AUTO_INCREMENT,year INT NOT NULL,laboratory_id BIGINT NOT NULL,available_hours DECIMAL(10,2) NOT NULL,used_hours DECIMAL(10,2) NOT NULL,upload_id BIGINT NULL,UNIQUE KEY uq_lab_usage(year,laboratory_id),FOREIGN KEY(laboratory_id) REFERENCES laboratories(id)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS evidence_uploads (id BIGINT PRIMARY KEY AUTO_INCREMENT,file_name VARCHAR(255) NOT NULL,mime_type VARCHAR(120) NOT NULL,file_size BIGINT NOT NULL,file_data MEDIUMBLOB NOT NULL,instrument_type VARCHAR(50) NOT NULL,unit_id VARCHAR(30) NOT NULL,year INT NOT NULL,uploaded_by VARCHAR(190) NOT NULL,row_count INT NOT NULL DEFAULT 0,checksum VARCHAR(100) NOT NULL,created_at BIGINT NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS lecturers (id BIGINT PRIMARY KEY AUTO_INCREMENT,nidn VARCHAR(50) UNIQUE,name VARCHAR(190) NOT NULL,program_id VARCHAR(30) NOT NULL,email VARCHAR(190),expertise VARCHAR(255),scholar_id VARCHAR(100),scholar_url TEXT,photo_url TEXT,active TINYINT(1) NOT NULL DEFAULT 1) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS audit_logs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_email VARCHAR(190) NOT NULL,role VARCHAR(30) NOT NULL,action VARCHAR(80) NOT NULL,entity VARCHAR(80) NOT NULL,entity_id VARCHAR(100),created_at BIGINT NOT NULL) ENGINE=InnoDB`
+];
+
+const seeds=[
+`INSERT IGNORE INTO users(email,name,role,unit_id) VALUES ('admin@polbeng.ac.id','Administrator Portal','ADMIN','UPPS'),('kajur@polbeng.ac.id','Ketua Jurusan','KAJUR','UPPS'),('sekjur@polbeng.ac.id','Sekretaris Jurusan','SEKJUR','UPPS'),('kaprodi.nautika@polbeng.ac.id','Kaprodi Nautika','KAPRODI','NAUTIKA'),('kaprodi.kpn@polbeng.ac.id','Kaprodi KPN','KAPRODI','KPN'),('gkm@polbeng.ac.id','Gugus Kendali Mutu','GKM','UPPS')`,
+`INSERT IGNORE INTO kpis(code,name,category,unit_id,target,actual,year,source,formula_type) VALUES ('KPI-01','Capaian pembelajaran lulusan','Akademik','UPPS',80,0,2026,'OBE Prodi','AVERAGE_OBE'),('KPI-02','Kelulusan tepat waktu','Akademik','UPPS',85,0,2026,'Data Kelulusan','RATIO_GRADUATION'),('KPI-03','Serapan lulusan ≤ 6 bulan','Tracer','UPPS',75,0,2026,'Tracer Study','RATIO_TRACER'),('KPI-04','Pemanfaatan laboratorium','Sarana','UPPS',80,0,2026,'Log Laboratorium','RATIO_LAB')`,
+`INSERT IGNORE INTO laboratories(id,name,field,equipment_count,member_count,roadmap_progress) VALUES (1,'Bridge & Navigation Simulator','Navigasi dan keselamatan pelayaran',18,12,84),(2,'Laboratorium Kepelabuhanan','Operasional pelabuhan dan bongkar muat',32,9,76),(3,'Laboratorium Bahari','Keselamatan, meteorologi, dan lingkungan',24,11,81)`
+];
+
+export async function ensureDatabase(){
+  for(const sql of tables)await db.prepare(sql).run();
+  for(const sql of seeds)await db.prepare(sql).run();
+  const count=await db.prepare("SELECT COUNT(*) count FROM auth_credentials").first<{count:number}>();
+  if(!Number(count?.count)){const accounts=await db.prepare("SELECT id FROM users").all<{id:number}>();for(const account of accounts.results){const salt=crypto.randomUUID();await db.prepare("INSERT IGNORE INTO auth_credentials(user_id,password_salt,password_hash) VALUES (?,?,?)").bind(account.id,salt,await hashPassword("Polbeng#2026",salt)).run()}}
+  await refreshDerivedKpis(db);return db;
+}
+export async function refreshDerivedKpis(database=db){
+  await database.batch([
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(score),2) FROM outcome_results),0) WHERE formula_type='AVERAGE_OBE'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(graduated_on_time)/NULLIF(SUM(graduated),0),2) FROM academic_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_GRADUATION'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(employed_within_6_months)/NULLIF(SUM(traced),0),2) FROM tracer_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_TRACER'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(used_hours)/NULLIF(SUM(available_hours),0),2) FROM laboratory_usage WHERE year=kpis.year),0) WHERE formula_type='RATIO_LAB'")]);
+}

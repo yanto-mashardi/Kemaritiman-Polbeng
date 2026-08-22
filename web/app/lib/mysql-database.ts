@@ -33,7 +33,9 @@ const tables=[
 `CREATE TABLE IF NOT EXISTS laboratory_usage (id BIGINT PRIMARY KEY AUTO_INCREMENT,year INT NOT NULL,laboratory_id BIGINT NOT NULL,available_hours DECIMAL(10,2) NOT NULL,used_hours DECIMAL(10,2) NOT NULL,upload_id BIGINT NULL,UNIQUE KEY uq_lab_usage(year,laboratory_id),FOREIGN KEY(laboratory_id) REFERENCES laboratories(id)) ENGINE=InnoDB`,
 `CREATE TABLE IF NOT EXISTS evidence_uploads (id BIGINT PRIMARY KEY AUTO_INCREMENT,file_name VARCHAR(255) NOT NULL,mime_type VARCHAR(120) NOT NULL,file_size BIGINT NOT NULL,file_data MEDIUMBLOB NOT NULL,instrument_type VARCHAR(50) NOT NULL,unit_id VARCHAR(30) NOT NULL,year INT NOT NULL,uploaded_by VARCHAR(190) NOT NULL,row_count INT NOT NULL DEFAULT 0,checksum VARCHAR(100) NOT NULL,created_at BIGINT NOT NULL) ENGINE=InnoDB`,
 `CREATE TABLE IF NOT EXISTS lecturers (id BIGINT PRIMARY KEY AUTO_INCREMENT,nidn VARCHAR(50) UNIQUE,name VARCHAR(190) NOT NULL,program_id VARCHAR(30) NOT NULL,email VARCHAR(190),expertise VARCHAR(255),scholar_id VARCHAR(100),scholar_url TEXT,photo_url TEXT,active TINYINT(1) NOT NULL DEFAULT 1) ENGINE=InnoDB`,
-`CREATE TABLE IF NOT EXISTS audit_logs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_email VARCHAR(190) NOT NULL,role VARCHAR(30) NOT NULL,action VARCHAR(80) NOT NULL,entity VARCHAR(80) NOT NULL,entity_id VARCHAR(100),created_at BIGINT NOT NULL) ENGINE=InnoDB`
+`CREATE TABLE IF NOT EXISTS audit_logs (id BIGINT PRIMARY KEY AUTO_INCREMENT,user_email VARCHAR(190) NOT NULL,role VARCHAR(30) NOT NULL,action VARCHAR(80) NOT NULL,entity VARCHAR(80) NOT NULL,entity_id VARCHAR(100),created_at BIGINT NOT NULL) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS workflow_items (id BIGINT PRIMARY KEY AUTO_INCREMENT,entity_type VARCHAR(50) NOT NULL,entity_id BIGINT NULL,unit_id VARCHAR(30) NOT NULL,year INT NOT NULL,title VARCHAR(255) NOT NULL,stage VARCHAR(30) NOT NULL DEFAULT 'PELAKSANAAN',status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',owner_email VARCHAR(190) NOT NULL,reviewer_email VARCHAR(190) NULL,approved_by VARCHAR(190) NULL,finding TEXT NULL,recommendation TEXT NULL,corrective_action TEXT NULL,due_at BIGINT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,INDEX idx_workflow_unit_status(unit_id,status),INDEX idx_workflow_entity(entity_type,entity_id)) ENGINE=InnoDB`,
+`CREATE TABLE IF NOT EXISTS workflow_events (id BIGINT PRIMARY KEY AUTO_INCREMENT,workflow_id BIGINT NOT NULL,from_status VARCHAR(30) NULL,to_status VARCHAR(30) NOT NULL,actor_email VARCHAR(190) NOT NULL,actor_role VARCHAR(30) NOT NULL,note TEXT NULL,created_at BIGINT NOT NULL,FOREIGN KEY(workflow_id) REFERENCES workflow_items(id) ON DELETE CASCADE,INDEX idx_workflow_events(workflow_id,created_at)) ENGINE=InnoDB`
 ];
 
 const seeds=[
@@ -42,17 +44,35 @@ const seeds=[
 `INSERT IGNORE INTO laboratories(id,name,field,equipment_count,member_count,roadmap_progress) VALUES (1,'Bridge & Navigation Simulator','Navigasi dan keselamatan pelayaran',18,12,84),(2,'Laboratorium Kepelabuhanan','Operasional pelabuhan dan bongkar muat',32,9,76),(3,'Laboratorium Bahari','Keselamatan, meteorologi, dan lingkungan',24,11,81)`
 ];
 
+let credentialsSecured=false;
+async function secureLegacyCredentials(){
+  if(credentialsSecured)return;
+  credentialsSecured=true;
+  const marker=await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='legacy_credentials_removed'").first<{setting_value:string}>();
+  if(marker)return;
+  await db.prepare("DELETE FROM auth_sessions").run();
+  await db.prepare("DELETE FROM auth_credentials").run();
+  const bootstrap=process.env.INITIAL_ADMIN_PASSWORD;
+  if(bootstrap){
+    const admin=await db.prepare("SELECT id FROM users WHERE role='ADMIN' ORDER BY id LIMIT 1").first<{id:number}>();
+    if(admin){const salt=crypto.randomUUID();await db.prepare("INSERT INTO auth_credentials(user_id,password_salt,password_hash) VALUES (?,?,?)").bind(admin.id,salt,await hashPassword(bootstrap,salt)).run()}
+  }
+  await db.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES ('legacy_credentials_removed','1') ON DUPLICATE KEY UPDATE setting_value='1'").run();
+}
+
 export async function ensureDatabase(){
   for(const sql of tables)await db.prepare(sql).run();
   for(const sql of seeds)await db.prepare(sql).run();
-  const count=await db.prepare("SELECT COUNT(*) count FROM auth_credentials").first<{count:number}>();
-  if(!Number(count?.count)){const accounts=await db.prepare("SELECT id FROM users").all<{id:number}>();for(const account of accounts.results){const salt=crypto.randomUUID();await db.prepare("INSERT IGNORE INTO auth_credentials(user_id,password_salt,password_hash) VALUES (?,?,?)").bind(account.id,salt,await hashPassword("Polbeng#2026",salt)).run()}}
-  await refreshDerivedKpis(db);return db;
+  await secureLegacyCredentials();
+  await refreshDerivedKpis(db);
+  return db;
 }
+
 export async function refreshDerivedKpis(database=db){
   await database.batch([
     database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(score),2) FROM outcome_results),0) WHERE formula_type='AVERAGE_OBE'"),
     database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(graduated_on_time)/NULLIF(SUM(graduated),0),2) FROM academic_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_GRADUATION'"),
     database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(employed_within_6_months)/NULLIF(SUM(traced),0),2) FROM tracer_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_TRACER'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(used_hours)/NULLIF(SUM(available_hours),0),2) FROM laboratory_usage WHERE year=kpis.year),0) WHERE formula_type='RATIO_LAB'")]);
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(used_hours)/NULLIF(SUM(available_hours),0),2) FROM laboratory_usage WHERE year=kpis.year),0) WHERE formula_type='RATIO_LAB'")
+  ]);
 }

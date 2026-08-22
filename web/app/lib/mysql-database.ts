@@ -66,19 +66,38 @@ async function secureLegacyCredentials(){
   await db.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES ('legacy_default_credentials_rotated','1') ON DUPLICATE KEY UPDATE setting_value='1'").run();
 }
 
+let evidenceMigrated=false;
+async function migrateLegacyEvidenceWorkflows(){
+  if(evidenceMigrated)return;
+  evidenceMigrated=true;
+  const marker=await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='legacy_evidence_workflow_migrated'").first<{setting_value:string}>();
+  if(marker)return;
+  const rows=await db.prepare("SELECT e.id,e.file_name AS fileName,e.instrument_type AS instrument,e.unit_id AS unitId,e.year,e.uploaded_by AS uploadedBy,e.created_at AS createdAt FROM evidence_uploads e LEFT JOIN workflow_items w ON w.entity_type=e.instrument_type AND w.entity_id=e.id WHERE w.id IS NULL ORDER BY e.id").all<{id:number;fileName:string;instrument:string;unitId:string;year:number;uploadedBy:string;createdAt:number}>();
+  const now=Date.now();
+  for(const row of rows.results){
+    const saved=await db.prepare("INSERT INTO workflow_items(entity_type,entity_id,unit_id,year,title,stage,status,owner_email,reviewer_email,approved_by,finding,created_at,updated_at) VALUES (?,?,?,?,?,'PENGENDALIAN','APPROVED',?,'SYSTEM_MIGRATION','SYSTEM_MIGRATION','Migrated from the pre-PPEPP evidence model.',?,?)")
+      .bind(row.instrument,row.id,row.unitId,row.year,`Evidence ${row.instrument}: ${row.fileName}`,row.uploadedBy||"SYSTEM_MIGRATION",row.createdAt||now,now).run();
+    const workflowId=saved.meta.last_row_id;
+    await db.prepare("INSERT INTO workflow_events(workflow_id,from_status,to_status,actor_email,actor_role,note,created_at) VALUES (?,NULL,'APPROVED','SYSTEM_MIGRATION','ADMIN','Legacy evidence accepted as migration baseline; review may be performed after migration.',?)").bind(workflowId,now).run();
+    await db.prepare("INSERT INTO audit_logs(user_email,role,action,entity,entity_id,created_at) VALUES ('SYSTEM_MIGRATION','ADMIN','MIGRATE_LEGACY_EVIDENCE','WORKFLOW',?,?)").bind(String(workflowId),now).run();
+  }
+  await db.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES ('legacy_evidence_workflow_migrated',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)").bind(String(rows.results.length)).run();
+}
+
 export async function ensureDatabase(){
   for(const sql of tables)await db.prepare(sql).run();
   for(const sql of seeds)await db.prepare(sql).run();
   await secureLegacyCredentials();
+  await migrateLegacyEvidenceWorkflows();
   await refreshDerivedKpis(db);
   return db;
 }
 
 export async function refreshDerivedKpis(database=db){
   await database.batch([
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(o.score),2) FROM outcome_results o JOIN workflow_items w ON w.entity_type='OBE' AND w.entity_id=o.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE w.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='AVERAGE_OBE'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(a.graduated_on_time)/NULLIF(SUM(a.graduated),0),2) FROM academic_records a JOIN workflow_items w ON w.entity_type='ACADEMIC' AND w.entity_id=a.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE a.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='RATIO_GRADUATION'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(t.employed_within_6_months)/NULLIF(SUM(t.traced),0),2) FROM tracer_records t JOIN workflow_items w ON w.entity_type='TRACER' AND w.entity_id=t.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE t.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='RATIO_TRACER'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(l.used_hours)/NULLIF(SUM(l.available_hours),0),2) FROM laboratory_usage l JOIN workflow_items w ON w.entity_type='LAB' AND w.entity_id=l.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE l.year=kpis.year),0) WHERE formula_type='RATIO_LAB'")
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(o.score),2) FROM outcome_results o JOIN workflow_items w ON w.entity_type='OBE' AND w.entity_id=o.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE w.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),actual) WHERE formula_type='AVERAGE_OBE'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(a.graduated_on_time)/NULLIF(SUM(a.graduated),0),2) FROM academic_records a JOIN workflow_items w ON w.entity_type='ACADEMIC' AND w.entity_id=a.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE a.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),actual) WHERE formula_type='RATIO_GRADUATION'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(t.employed_within_6_months)/NULLIF(SUM(t.traced),0),2) FROM tracer_records t JOIN workflow_items w ON w.entity_type='TRACER' AND w.entity_id=t.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE t.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),actual) WHERE formula_type='RATIO_TRACER'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(l.used_hours)/NULLIF(SUM(l.available_hours),0),2) FROM laboratory_usage l JOIN workflow_items w ON w.entity_type='LAB' AND w.entity_id=l.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE l.year=kpis.year),actual) WHERE formula_type='RATIO_LAB'")
   ]);
 }

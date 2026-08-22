@@ -6,6 +6,7 @@ export type Permission =
   | "kpi.target.manage"
   | "kpi.definition.manage"
   | "document.manage"
+  | "lecturer.manage"
   | "evidence.program.upload"
   | "evidence.lab.upload"
   | "obe.read"
@@ -18,19 +19,19 @@ export type Permission =
 const rolePermissions: Record<PortalRole, Permission[]> = {
   VIEWER: ["portal.public.read"],
   ADMIN: [
-    "portal.public.read","workspace.read","kpi.target.manage","kpi.definition.manage","document.manage",
+    "portal.public.read","workspace.read","kpi.target.manage","kpi.definition.manage","document.manage","lecturer.manage",
     "evidence.program.upload","evidence.lab.upload","obe.read","obe.manage","evaluation.manage","approval.manage",
     "corrective_action.manage","user.manage",
   ],
   KAJUR: [
-    "portal.public.read","workspace.read","kpi.target.manage","document.manage","obe.read","evaluation.manage",
+    "portal.public.read","workspace.read","kpi.target.manage","document.manage","lecturer.manage","obe.read","evaluation.manage",
     "approval.manage","corrective_action.manage",
   ],
   SEKJUR: [
-    "portal.public.read","workspace.read","document.manage","evidence.lab.upload","obe.read","corrective_action.manage",
+    "portal.public.read","workspace.read","document.manage","lecturer.manage","evidence.lab.upload","obe.read","corrective_action.manage",
   ],
   KAPRODI: [
-    "portal.public.read","workspace.read","document.manage","evidence.program.upload","obe.read","obe.manage",
+    "portal.public.read","workspace.read","document.manage","lecturer.manage","evidence.program.upload","obe.read","obe.manage",
     "corrective_action.manage",
   ],
   GKM: [

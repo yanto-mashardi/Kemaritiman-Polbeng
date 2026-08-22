@@ -76,9 +76,9 @@ export async function ensureDatabase(){
 
 export async function refreshDerivedKpis(database=db){
   await database.batch([
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(score),2) FROM outcome_results),0) WHERE formula_type='AVERAGE_OBE'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(graduated_on_time)/NULLIF(SUM(graduated),0),2) FROM academic_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_GRADUATION'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(employed_within_6_months)/NULLIF(SUM(traced),0),2) FROM tracer_records WHERE year=kpis.year),0) WHERE formula_type='RATIO_TRACER'"),
-    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(used_hours)/NULLIF(SUM(available_hours),0),2) FROM laboratory_usage WHERE year=kpis.year),0) WHERE formula_type='RATIO_LAB'")
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(AVG(o.score),2) FROM outcome_results o JOIN workflow_items w ON w.entity_type='OBE' AND w.entity_id=o.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE w.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='AVERAGE_OBE'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(a.graduated_on_time)/NULLIF(SUM(a.graduated),0),2) FROM academic_records a JOIN workflow_items w ON w.entity_type='ACADEMIC' AND w.entity_id=a.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE a.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='RATIO_GRADUATION'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(t.employed_within_6_months)/NULLIF(SUM(t.traced),0),2) FROM tracer_records t JOIN workflow_items w ON w.entity_type='TRACER' AND w.entity_id=t.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE t.year=kpis.year AND (kpis.unit_id='UPPS' OR w.unit_id=kpis.unit_id)),0) WHERE formula_type='RATIO_TRACER'"),
+    database.prepare("UPDATE kpis SET actual=COALESCE((SELECT ROUND(100*SUM(l.used_hours)/NULLIF(SUM(l.available_hours),0),2) FROM laboratory_usage l JOIN workflow_items w ON w.entity_type='LAB' AND w.entity_id=l.upload_id AND w.status IN ('APPROVED','CLOSED') WHERE l.year=kpis.year),0) WHERE formula_type='RATIO_LAB'")
   ]);
 }

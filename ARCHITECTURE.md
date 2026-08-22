@@ -4,7 +4,7 @@
 
 - `/` adalah website publik Jurusan Kemaritiman/UPPS.
 - `/workspace` adalah ruang kerja internal berbasis role.
-- `/api/public` hanya mengirim data yang aman untuk publik.
+- `/api/public` hanya mengirim data yang memang ditetapkan untuk konsumsi publik.
 - `/api/portal` hanya dapat dibaca user dengan permission `workspace.read`.
 
 ## 2. Role dan permission
@@ -35,7 +35,8 @@ Evidence `OBE` menghasilkan `outcome_results` per program studi. Hasil rinci dap
 
 - Dokumen tampil di website publik hanya bila `documents.visibility='PUBLIK'`.
 - Ringkasan mutu tampil hanya bila workflow `APPROVED/CLOSED` dan `approved_by` terisi.
-- Endpoint publik tidak mengirim email dosen, file evidence, data audit, atau hasil OBE mentah.
+- Profil dosen yang aktif dapat dipublikasikan, termasuk NIDN, bidang keahlian, Google Scholar, foto, dan email institusi/profesional untuk kontak akademik.
+- Endpoint publik tidak mengirim file evidence, audit log, credential, session, atau hasil OBE mentah.
 
 ## 6. Keamanan credential
 
@@ -51,12 +52,21 @@ Setelah Admin dapat login, credential role lain dapat dibuat/diperbarui melalui 
 
 Endpoint lama `/api/admin/source-data` dinonaktifkan agar tidak ada input angka KPI yang melewati evidence dan PPEPP. Input sumber dilakukan melalui template Excel/evidence sehingga file asli, checksum, uploader, jumlah baris, waktu, dan audit trail tersedia.
 
-## 8. Catatan deployment
+## 8. Migrasi database lokal dan deployment
+
+Database MySQL lokal yang sudah digunakan sebelumnya dapat tetap dipakai. Perubahan arsitektur memang dimaksudkan untuk memigrasikan database tersebut pada saat aplikasi baru dijalankan. `ensureDatabase()` akan mempertahankan tabel lama yang masih digunakan dan membuat tabel baru yang diperlukan, termasuk workflow PPEPP.
+
+Tidak ada kewajiban membuat database baru khusus pengujian. Database terpisah hanya diperlukan bila ingin melakukan pengujian destruktif atau menjaga dataset lama tetap identik sebagai pembanding.
+
+Sebelum menjalankan branch refactor pada database lokal yang sekarang, buat backup terlebih dahulu. Setelah pengujian lokal berhasil, lakukan backup database produksi sebelum deployment ke VPS.
 
 Sebelum merge/deploy:
 
-1. Set `MYSQL_*` seperti sebelumnya.
-2. Set `INITIAL_ADMIN_PASSWORD` bila akun Admin belum memiliki credential non-legacy.
-3. Jalankan `npm ci`.
-4. Jalankan `npm run build`.
-5. Verifikasi `/`, `/workspace`, login Admin, upload evidence, evaluasi GKM, approval Kajur, dan perubahan KPI setelah approval.
+1. Backup database lokal yang sekarang.
+2. Gunakan konfigurasi `MYSQL_*` lokal yang sudah ada.
+3. Set `INITIAL_ADMIN_PASSWORD` bila akun Admin belum memiliki credential non-legacy.
+4. Jalankan `npm ci`.
+5. Jalankan `npm run build`.
+6. Jalankan aplikasi dan biarkan `ensureDatabase()` melakukan penyesuaian skema.
+7. Verifikasi `/`, `/workspace`, login Admin, upload evidence, evaluasi GKM, approval Kajur, dan perubahan KPI setelah approval.
+8. Setelah lokal lolos, backup MySQL VPS, merge ke `main`, lalu deploy `main` ke VPS.

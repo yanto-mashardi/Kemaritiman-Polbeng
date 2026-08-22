@@ -48,16 +48,22 @@ let credentialsSecured=false;
 async function secureLegacyCredentials(){
   if(credentialsSecured)return;
   credentialsSecured=true;
-  const marker=await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='legacy_credentials_removed'").first<{setting_value:string}>();
+  const marker=await db.prepare("SELECT setting_value FROM app_settings WHERE setting_key='legacy_default_credentials_rotated'").first<{setting_value:string}>();
   if(marker)return;
-  await db.prepare("DELETE FROM auth_sessions").run();
-  await db.prepare("DELETE FROM auth_credentials").run();
+  const credentials=await db.prepare("SELECT user_id AS userId,password_salt AS salt,password_hash AS passwordHash FROM auth_credentials").all<{userId:number;salt:string;passwordHash:string}>();
+  for(const credential of credentials.results){
+    const legacyHash=await hashPassword("Polbeng#2026",credential.salt);
+    if(legacyHash===credential.passwordHash){
+      await db.prepare("DELETE FROM auth_sessions WHERE user_id=?").bind(credential.userId).run();
+      await db.prepare("DELETE FROM auth_credentials WHERE user_id=?").bind(credential.userId).run();
+    }
+  }
   const bootstrap=process.env.INITIAL_ADMIN_PASSWORD;
   if(bootstrap){
-    const admin=await db.prepare("SELECT id FROM users WHERE role='ADMIN' ORDER BY id LIMIT 1").first<{id:number}>();
+    const admin=await db.prepare("SELECT u.id FROM users u LEFT JOIN auth_credentials c ON c.user_id=u.id WHERE u.role='ADMIN' AND c.user_id IS NULL ORDER BY u.id LIMIT 1").first<{id:number}>();
     if(admin){const salt=crypto.randomUUID();await db.prepare("INSERT INTO auth_credentials(user_id,password_salt,password_hash) VALUES (?,?,?)").bind(admin.id,salt,await hashPassword(bootstrap,salt)).run()}
   }
-  await db.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES ('legacy_credentials_removed','1') ON DUPLICATE KEY UPDATE setting_value='1'").run();
+  await db.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES ('legacy_default_credentials_rotated','1') ON DUPLICATE KEY UPDATE setting_value='1'").run();
 }
 
 export async function ensureDatabase(){

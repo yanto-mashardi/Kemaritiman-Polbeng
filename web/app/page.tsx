@@ -8,7 +8,7 @@ type PublicData={
   documents:Array<{id:number;title:string;type:string;unitId:string;year:number;url:string}>;
   repositories:Array<{id:number;title:string;author:string;year:number;type:string;programId:string;url:string}>;
   laboratories:Array<{id:number;name:string;field:string}>;
-  lecturers:Array<{id:number;nidn:string;name:string;programId:string;expertise?:string;scholarUrl?:string;photoUrl?:string}>;
+  lecturers:Array<{id:number;nidn:string;name:string;programId:string;email?:string;expertise?:string;scholarUrl?:string;photoUrl?:string}>;
   quality:Array<{id:number;title:string;unitId:string;stage:string;status:string;year:number}>;
 };
 
@@ -16,6 +16,10 @@ const empty:PublicData={programs:[],documents:[],repositories:[],laboratories:[]
 
 function SectionTitle({eyebrow,title,copy}:{eyebrow:string;title:string;copy?:string}){
   return <div className="section-title"><span>{eyebrow}</span><h2>{title}</h2>{copy&&<p>{copy}</p>}</div>;
+}
+
+function LecturerGroup({title,rows}:{title:string;rows:PublicData["lecturers"]}){
+  return <section className="lecturer-group"><h3>{title}</h3><div className="lecturer-grid">{rows.map(d=><article key={d.id}><div className="lecturer-avatar">{d.photoUrl?<img src={d.photoUrl} alt={d.name}/>:d.name.split(" ").slice(0,2).map(x=>x[0]).join("")}</div><div><b>{d.name}</b><span>{d.expertise||"Bidang keahlian belum diisi"}</span><small>NIDN {d.nidn||"—"}</small>{d.email&&<a href={`mailto:${d.email}`}>{d.email}</a>}{d.scholarUrl&&<a href={d.scholarUrl} target="_blank" rel="noreferrer">Google Scholar ↗</a>}</div></article>)}{!rows.length&&<p className="empty-public">Belum ada profil dosen yang dipublikasikan.</p>}</div></section>;
 }
 
 export default function PublicHome(){
@@ -27,7 +31,7 @@ export default function PublicHome(){
   return <div className="public-site">
     <header className="public-header">
       <a className="public-brand" href="#beranda"><img src="/api/logo" alt="Logo Politeknik Negeri Bengkalis"/><span><b>Jurusan Kemaritiman</b><small>Politeknik Negeri Bengkalis</small></span></a>
-      <nav><a href="#profil">Profil</a><a href="#prodi">Program Studi</a><a href="#akademik">Akademik</a><a href="#laboratorium">Laboratorium</a><a href="#riset">Riset</a><a href="#mutu">Mutu</a></nav>
+      <nav><a href="#profil">Profil</a><a href="#prodi">Program Studi</a><a href="#akademik">Akademik</a><a href="#dosen">Dosen</a><a href="#laboratorium">Laboratorium</a><a href="#riset">Riset</a><a href="#mutu">Mutu</a></nav>
       <a className="workspace-link" href="/workspace">Portal Internal</a>
     </header>
 
@@ -55,6 +59,12 @@ export default function PublicHome(){
       <section className="public-section academic" id="akademik">
         <div><SectionTitle eyebrow="AKADEMIK" title="Dokumen dan sumber akademik resmi" copy="Hanya dokumen yang ditetapkan berstatus publik yang ditampilkan pada website ini."/><div className="document-list">{data.documents.slice(0,6).map(d=><a key={d.id} href={d.url||"#"}><span>{d.type}</span><div><b>{d.title}</b><small>{d.unitId} · {d.year}</small></div><i>↗</i></a>)}{!data.documents.length&&<p className="empty-public">Belum ada dokumen publik yang dipublikasikan dari basis data.</p>}</div></div>
         <aside className="academic-note"><span>KURIKULUM & OBE</span><h3>Evaluasi pembelajaran berada di ruang kerja internal.</h3><p>Hasil CPL/CPMK, evidence, temuan mutu, dan tindak lanjut tidak ditampilkan sebagai data publik sebelum melalui proses evaluasi dan persetujuan.</p><a href="/workspace">Portal pengelola →</a></aside>
+      </section>
+
+      <section className="public-section lecturer-section" id="dosen">
+        <SectionTitle eyebrow="DOSEN" title="Tenaga pengajar Jurusan Kemaritiman" copy="Profil dosen, bidang keahlian, email institusi/profesional, dan profil akademik dipublikasikan sebagai informasi kontak akademik."/>
+        <LecturerGroup title="D3 Nautika" rows={nautika}/>
+        <LecturerGroup title="D3 Ketatalaksanaan Pelayaran Niaga" rows={kpn}/>
       </section>
 
       <section className="public-section" id="laboratorium">

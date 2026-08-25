@@ -12,6 +12,7 @@ export async function POST(request: Request) {
   const expiresAt = Date.now() + 8 * 60 * 60 * 1000;
   await db.prepare("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES (?,?,?)").bind(await hashToken(token), account.id, expiresAt).run();
   const response = Response.json({ user: { email: account.email, name: account.name, role: account.role, unitId: account.unitId } });
-  response.headers.append("Set-Cookie", `kemaritiman_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`);
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  response.headers.append("Set-Cookie", `kemaritiman_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure}`);
   return response;
 }
